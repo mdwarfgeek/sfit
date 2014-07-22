@@ -33,10 +33,13 @@ struct sfit_info {
 /* Prototypes for external stuff */
 
 int get_num_cpus (void);
+int linsolve (double *a, double *b, int n, double rcond);
 
-void dgelsy_ (int *, int *, int *,
-              double *, int *, double *, int *, int *, double *, int *,
+#ifdef USE_LAPACK
+void dgelss_ (int *, int *, int *,
+              double *, int *, double *, int *, double *, double *, int *,
               double *, int *, int *);
+#endif
 
 /* Main calculation */
 
@@ -58,10 +61,11 @@ static inline int sfit_compute (struct sfit_info *inf,
   double chisq, a0, a1, a2;
   double a[ncoeffmax*ncoeffmax], b[ncoeffmax], c[ncoeffmax];
 
+#ifdef USE_LAPACK
   int lwork = 6*ncoeffmax;
-  int jpvt[ncoeffmax];
-  double dwork[lwork], rcond;
+  double s[ncoeffmax], dwork[lwork], rcond;
   int nrhs, rank, info;
+#endif
 
   double mod, err;
 
@@ -157,18 +161,23 @@ static inline int sfit_compute (struct sfit_info *inf,
       for(j = k+1; j < ncoeff; j++)
         a[k*ncoeff+j] = a[j*ncoeff+k];
 
+#ifdef USE_LAPACK
     /* Solve */
     nrhs = 1;
     rcond = -1.0;
 
-    dgelsy_(&ncoeff, &ncoeff, &nrhs,
-            a, &ncoeff, b, &ncoeff, jpvt, &rcond, &rank,
+    dgelss_(&ncoeff, &ncoeff, &nrhs,
+            a, &ncoeff, b, &ncoeff, s, &rcond, &rank,
             dwork, &lwork, &info);
 
     /* XXX - error handling */
 
     if(info)
-      fprintf(stderr, "dgelsy: %d", info);
+      fprintf(stderr, "dgelss: %d", info);
+
+#else
+    linsolve(a, b, ncoeff, -1.0);
+#endif
 
     /* Do they want b? */
     if(b_r) {

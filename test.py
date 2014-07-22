@@ -90,14 +90,17 @@ nn = ph-pl+1
 # Perform period search.
 (pergrm, winfunc) = sfit.search(buf, pl, ph, vsamp)
 
+# "Amplitude spectrum" equivalent is square root of chi^2.
+ampspec = numpy.sqrt(pergrm)
+
 # Best period.
-p = numpy.argmin(pergrm)
+p = numpy.argmin(ampspec)
 
 # Parabolic interpolation for a better estimate.
 if p > 0 and p < nn-1:
-    aa = pergrm[p]
-    bb = 0.5*(pergrm[p+1] - pergrm[p-1])
-    cc = 0.5*(pergrm[p+1] + pergrm[p-1] - 2.0*aa)
+    aa = ampspec[p]
+    bb = 0.5*(ampspec[p+1] - ampspec[p-1])
+    cc = 0.5*(ampspec[p+1] + ampspec[p-1] - 2.0*aa)
     offset = -0.5*bb/cc
 else:
     offset = 0.0
@@ -115,9 +118,6 @@ print "Alternate hypothesis", chialt, balt
 # Frequency grid for plot.
 v = numpy.linspace(pl, ph, nn)
 v *= vsamp
-
-# "Amplitude spectrum" equivalent is square root of chi^2.
-ampspec = numpy.sqrt(pergrm)
 
 # Plots.
 npanel = len(buf)+2
@@ -164,11 +164,11 @@ for ilc, lc in enumerate(buf):
 
     plt.plot(modx, mody)
 
-plt.subplot(npanel, 1, npanel-1)
-plt.axis([numpy.min(v), numpy.max(v), numpy.max(ampspec), numpy.min(ampspec)])
-plt.plot(v, ampspec)
-plt.plot([vbest, vbest], plt.ylim(), linestyle='--')
-plt.subplot(npanel, 1, npanel)
+axp = plt.subplot(npanel, 1, npanel-1)
+axp.axis([numpy.min(v), numpy.max(v), numpy.max(ampspec), numpy.min(ampspec)])
+axp.plot(v, ampspec)
+axp.plot([vbest, vbest], plt.ylim(), linestyle='--')
+plt.subplot(npanel, 1, npanel, sharex=axp)
 plt.axis([numpy.min(v), numpy.max(v), 0.0, 1.0])
 plt.plot(v, winfunc)
 plt.plot([vbest, vbest], plt.ylim(), linestyle='--')
