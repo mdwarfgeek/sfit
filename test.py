@@ -147,13 +147,16 @@ for ilc, lc in enumerate(buf):
     bep = b[ndc:ndc+nep]  # external parameters
     bsc = b[ndc+nep:]     # sin, cos, sin, cos, ...
 
+    # "Corrected" y array
+    blm = bdc[idc] + numpy.dot(bep, ep)
+    ycorr = y - blm
+
     plt.subplot(npanel, 1, ilc+1)
-    plt.axis([0.0, 1.0, numpy.max(y), numpy.min(y)])
+    plt.axis([0.0, 1.0, numpy.max(ycorr), numpy.min(ycorr)])
 
     phase = numpy.fmod(vbest*t, 1.0)
-    blm = bdc[idc] + numpy.dot(bep, ep)
 
-    plt.plot(phase, y-blm, ".")
+    plt.plot(phase, ycorr, ".")
     
     modx = numpy.linspace(0.0, 1.0, 1000)
     modp = 2*math.pi*modx
