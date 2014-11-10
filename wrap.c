@@ -366,6 +366,7 @@ static PyObject *wrap_null (PyObject *self,
   struct lc_list l;
 
   double *b = (double *) NULL;
+  double *bcov = (double *) NULL;
   int bstride;
 
   double chisq;
@@ -373,7 +374,11 @@ static PyObject *wrap_null (PyObject *self,
   int rv;
 
   PyObject *bout = (PyObject *) NULL;
-  npy_intp outdim[2];
+  PyObject *bcovout = (PyObject *) NULL;
+  npy_intp outdim[3];
+
+  int ilc, i, j, ncoeff;
+  double *pin, *pout;
 
   /* Make sure lc_list is empty, all pointers null */
   memset(&l, 0, sizeof(l));
@@ -389,7 +394,7 @@ static PyObject *wrap_null (PyObject *self,
 
   /* Compute */
   rv = sfit_null(l.lclist, l.nlc,
-                 &b, &bstride,
+                 &b, &bcov, &bstride,
                  &chisq);
 
   if(rv) {
@@ -398,33 +403,65 @@ static PyObject *wrap_null (PyObject *self,
     goto error;
   }
 
-  /* Done */
-  cleanup_lc(&l);
-
-  /* Create array */
+  /* Create arrays */
   outdim[0] = l.nlc;
   outdim[1] = bstride;
+  outdim[2] = bstride;
 
   bout = PyArray_SimpleNew(2, outdim, NPY_DOUBLE);
   if(!bout)
     goto error;
 
-  memcpy(PyArray_DATA(bout), b, outdim[0]*outdim[1]*sizeof(double));
-  
+  bcovout = PyArray_SimpleNew(3, outdim, NPY_DOUBLE);
+  if(!bcovout)
+    goto error;
+
+  memcpy(PyArray_DATA(bout), b,
+         outdim[0]*outdim[1]*sizeof(double));
+
+  pout = PyArray_DATA(bcovout);
+
+  for(ilc = 0; ilc < l.nlc; ilc++) {
+    ncoeff = l.lclist[ilc].ncoeff;
+
+    pin = bcov + ilc*bstride*bstride;
+
+    for(i = 0; i < ncoeff; i++) {
+      for(j = 0; j < ncoeff; j++, pin++, pout++)
+        *pout = *pin;
+
+      for(; j < bstride; j++, pout++)
+        *pout = 0;
+    }
+
+    for(; i < bstride; i++)
+      for(j = 0; j < bstride; j++, pout++)
+        *pout = 0;
+  }
+
+  /* Done */
+  cleanup_lc(&l);
+
   free((void *) b);
   b = (double *) NULL;
+  free((void *) bcov);
+  bcov = (double *) NULL;
 
-  return(Py_BuildValue("dN",
+  return(Py_BuildValue("dNN",
                        chisq,
-                       PyArray_Return((PyArrayObject *) bout)));
+                       PyArray_Return((PyArrayObject *) bout),
+                       PyArray_Return((PyArrayObject *) bcovout)));
 
  error:
   cleanup_lc(&l);
 
   if(b)
     free((void *) b);
+  if(bcov)
+    free((void *) bcov);
 
   PyArray_XDECREF_ERR((PyArrayObject *) bout);
+  PyArray_XDECREF_ERR((PyArrayObject *) bcovout);
 
   return(NULL);
 }
@@ -440,6 +477,7 @@ static PyObject *wrap_single (PyObject *self,
   struct lc_list l;
 
   double *b = (double *) NULL;
+  double *bcov = (double *) NULL;
   int bstride;
 
   double chisq;
@@ -447,7 +485,11 @@ static PyObject *wrap_single (PyObject *self,
   int rv;
 
   PyObject *bout = (PyObject *) NULL;
-  npy_intp outdim[2];
+  PyObject *bcovout = (PyObject *) NULL;
+  npy_intp outdim[3];
+
+  int ilc, i, j, ncoeff;
+  double *pin, *pout;
 
   /* Make sure lc_list is empty, all pointers null */
   memset(&l, 0, sizeof(l));
@@ -463,7 +505,7 @@ static PyObject *wrap_single (PyObject *self,
 
   /* Compute */
   rv = sfit_single(l.lclist, l.nlc, v,
-                   &b, &bstride,
+                   &b, &bcov, &bstride,
                    &chisq);
 
   if(rv) {
@@ -472,33 +514,65 @@ static PyObject *wrap_single (PyObject *self,
     goto error;
   }
 
-  /* Done */
-  cleanup_lc(&l);
-
   /* Create array */
   outdim[0] = l.nlc;
   outdim[1] = bstride;
+  outdim[2] = bstride;
 
   bout = PyArray_SimpleNew(2, outdim, NPY_DOUBLE);
   if(!bout)
     goto error;
 
-  memcpy(PyArray_DATA(bout), b, outdim[0]*outdim[1]*sizeof(double));
+  bcovout = PyArray_SimpleNew(3, outdim, NPY_DOUBLE);
+  if(!bcovout)
+    goto error;
+
+  memcpy(PyArray_DATA(bout), b,
+         outdim[0]*outdim[1]*sizeof(double));
+
+  pout = PyArray_DATA(bcovout);
+
+  for(ilc = 0; ilc < l.nlc; ilc++) {
+    ncoeff = l.lclist[ilc].ncoeff + l.lclist[ilc].namp*2;
+
+    pin = bcov + ilc*bstride*bstride;
+
+    for(i = 0; i < ncoeff; i++) {
+      for(j = 0; j < ncoeff; j++, pin++, pout++)
+        *pout = *pin;
+
+      for(; j < bstride; j++, pout++)
+        *pout = 0;
+    }
+
+    for(; i < bstride; i++)
+      for(j = 0; j < bstride; j++, pout++)
+        *pout = 0;
+  }
   
+  /* Done */
+  cleanup_lc(&l);
+
   free((void *) b);
   b = (double *) NULL;
+  free((void *) bcov);
+  bcov = (double *) NULL;
 
-  return(Py_BuildValue("dN",
+  return(Py_BuildValue("dNN",
                        chisq,
-                       PyArray_Return((PyArrayObject *) bout)));
+                       PyArray_Return((PyArrayObject *) bout),
+                       PyArray_Return((PyArrayObject *) bcovout)));
 
  error:
   cleanup_lc(&l);
 
   if(b)
     free((void *) b);
+  if(bcov)
+    free((void *) bcov);
 
   PyArray_XDECREF_ERR((PyArrayObject *) bout);
+  PyArray_XDECREF_ERR((PyArrayObject *) bcovout);
 
   return(NULL);
 }
@@ -523,11 +597,11 @@ static PyMethodDef sfit_methods[] = {
     "or amplitudes.\n\n"
   },
   { "null", (PyCFunction) wrap_null, METH_VARARGS | METH_KEYWORDS,
-    "(chisq, b) = null(list)\n\n"
+    "(chisq, b, bcov) = null(list)\n\n"
     "Computes null hypothesis model.\n\n"
   },
   { "single", (PyCFunction) wrap_single, METH_VARARGS | METH_KEYWORDS,
-    "(chisq, b) = single(list, v)\n\n"
+    "(chisq, b, bcov) = single(list, v)\n\n"
     "Computes single fit at frequency v.\n\n"
   },
   { NULL, NULL, 0, NULL }

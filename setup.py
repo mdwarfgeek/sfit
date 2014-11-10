@@ -23,7 +23,7 @@ mod = distutils.core.Extension("sfit",
                                           "m"],
 ## No LAPACK
 #                               libraries=["m"],
-                               sources=["linsolve.c", "sfit.c",
+                               sources=["qr.c", "sfit.c",
                                         "sysinfo.c", "wrap.c"])
 
 distutils.core.setup(name="sfit",

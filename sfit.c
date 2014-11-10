@@ -18,6 +18,7 @@ struct sfit_info {
   double vsamp;
 
   int ncoeffmax;
+  int ncovmax;
   int nmeasmax;
 
   pthread_mutex_t mm;
@@ -33,12 +34,23 @@ struct sfit_info {
 /* Prototypes for external stuff */
 
 int get_num_cpus (void);
-int linsolve (double *a, double *b, int n, double rcond);
+
+void qr (double *a, double *s, double *betaarr, int *perm, int n);
+int qrsolve (double *a, double *s, double *betaarr, int *perm,
+             double *b, int n, double rcond);
+int qrinvert (double *a, double *s, double *betaarr, int *perm,
+              double *ainv, int n, double rcond);
 
 #ifdef USE_LAPACK
+void dgesvd_ (char *, char *,
+	      int *, int *, double *, int *,
+	      double *, double *, int *, double *, int *,
+	      double *, int *, int *, unsigned int, unsigned int);
 void dgelss_ (int *, int *, int *,
               double *, int *, double *, int *, double *, double *, int *,
               double *, int *, int *);
+
+int svdsolcov (double *a, double *b, double *cov, int m, double scale);
 #endif
 
 /* Main calculation */
@@ -48,8 +60,10 @@ static inline int sfit_compute (struct sfit_info *inf,
                                 double *cosarg,
                                 double v,
                                 int ncoeffmax,
+                                int ncovmax,
                                 int dosc,  /* 0 = null hyp., 1 = alt hyp. */
                                 double *b_r,
+                                double *bcov_r,
                                 volatile double *chisq_r,
                                 volatile double *winfunc_r) {
   int ilc, idp, idc, iep, iamp, k, j, ncoeff;
@@ -59,12 +73,15 @@ static inline int sfit_compute (struct sfit_info *inf,
   double phi, wt;
 
   double chisq, a0, a1, a2;
-  double a[ncoeffmax*ncoeffmax], b[ncoeffmax], c[ncoeffmax];
+  double a[ncovmax], b[ncoeffmax], c[ncoeffmax];
 
 #ifdef USE_LAPACK
   int lwork = 6*ncoeffmax;
   double s[ncoeffmax], dwork[lwork], rcond;
   int nrhs, rank, info;
+#else
+  double s[ncoeffmax], beta[ncoeffmax];
+  int perm[ncoeffmax];
 #endif
 
   double mod, err;
@@ -162,21 +179,33 @@ static inline int sfit_compute (struct sfit_info *inf,
         a[k*ncoeff+j] = a[j*ncoeff+k];
 
 #ifdef USE_LAPACK
-    /* Solve */
-    nrhs = 1;
-    rcond = -1.0;
-
-    dgelss_(&ncoeff, &ncoeff, &nrhs,
-            a, &ncoeff, b, &ncoeff, s, &rcond, &rank,
-            dwork, &lwork, &info);
-
+    /* Do they want covariance? */
+    if(bcov_r)
+      info = svdsolcov(a, b,
+                       &(bcov_r[ilc*ncoeffmax*ncoeffmax]),
+                       ncoeff, -1.0);
+    else {
+      /* Solve */
+      nrhs = 1;
+      rcond = -1.0;
+      
+      dgelss_(&ncoeff, &ncoeff, &nrhs,
+              a, &ncoeff, b, &ncoeff, s, &rcond, &rank,
+              dwork, &lwork, &info);
+    }
+    
     /* XXX - error handling */
-
+    
     if(info)
       fprintf(stderr, "dgelss: %d", info);
-
 #else
-    linsolve(a, b, ncoeff, -1.0);
+    qr(a, s, beta, perm, ncoeff);
+    qrsolve(a, s, beta, perm, b, ncoeff, -1.0);
+
+    if(bcov_r)
+      qrinvert(a, s, beta, perm,
+               &(bcov_r[ilc*ncoeffmax*ncoeffmax]),
+               ncoeff, -1.0);
 #endif
 
     /* Do they want b? */
@@ -239,8 +268,10 @@ static int sfit_search_work_single (struct sfit_info *inf) {
     rv += sfit_compute(inf, sinarg, cosarg,
                        p * inf->vsamp,
                        inf->ncoeffmax,
+                       inf->ncovmax,
                        1,     /* alt. hyp. */
                        NULL,  /* don't need b */
+                       NULL,
                        inf->chisqper+(p-inf->pl),
                        inf->winfunc+(p-inf->pl));
   }
@@ -298,8 +329,10 @@ static void *sfit_search_work_thread (void *data) {
     rv += sfit_compute(inf, sinarg, cosarg,
                        p * inf->vsamp,
                        inf->ncoeffmax,
+                       inf->ncovmax,
                        1,     /* alt. hyp. */
                        NULL,  /* don't need b */
+                       NULL,
                        &chisq, &winfunc);
 
     /* Store results */
@@ -351,6 +384,7 @@ void sfit_info (struct sfit_info *inf,
   inf->nlc = nlc;
 
   inf->ncoeffmax = ncoeffmax;
+  inf->ncovmax = ncoeffmax*ncoeffmax;
   inf->nmeasmax = nmeasmax;
 }
 
@@ -441,7 +475,7 @@ int sfit_search (struct sfit_lc *lclist, int nlc,
 }
 
 int sfit_null (struct sfit_lc *lclist, int nlc,
-               double **b, int *bstride,
+               double **b, double **bcov, int *bstride,
                double *chisq) {
   struct sfit_info inf;
   int rv;
@@ -451,16 +485,20 @@ int sfit_null (struct sfit_lc *lclist, int nlc,
 
   /* Allocate storage */
   *b = (double *) malloc(nlc * inf.ncoeffmax * sizeof(double));
-  if(!(*b))
+  *bcov = (double *) malloc(nlc * inf.ncovmax * sizeof(double));
+  if(!(*b) || !(*bcov))
     return(1);
 
   memset(*b, 0, nlc * inf.ncoeffmax * sizeof(double));
+  memset(*bcov, 0, nlc * inf.ncovmax * sizeof(double));
 
   rv = sfit_compute(&inf, NULL, NULL,
                     0,
                     inf.ncoeffmax,
+                    inf.ncovmax,
                     0,     /* null hyp. */
                     *b,
+                    *bcov,
                     chisq,
                     NULL);
 
@@ -471,7 +509,7 @@ int sfit_null (struct sfit_lc *lclist, int nlc,
 
 int sfit_single (struct sfit_lc *lclist, int nlc,
                  double v,
-                 double **b, int *bstride,
+                 double **b, double **bcov, int *bstride,
                  double *chisq) {
   struct sfit_info inf;
 
@@ -487,16 +525,20 @@ int sfit_single (struct sfit_lc *lclist, int nlc,
   sinarg = (double *) malloc(inf.nmeasmax * sizeof(double));
   cosarg = (double *) malloc(inf.nmeasmax * sizeof(double));
   *b = (double *) malloc(nlc * inf.ncoeffmax * sizeof(double));
-  if(!sinarg || !cosarg || !(*b))
+  *bcov = (double *) malloc(nlc * inf.ncovmax * sizeof(double));
+  if(!sinarg || !cosarg || !(*b) || !(*bcov))
     return(1);
 
   memset(*b, 0, nlc * inf.ncoeffmax * sizeof(double));
+  memset(*bcov, 0, nlc * inf.ncovmax * sizeof(double));
 
   rv = sfit_compute(&inf, sinarg, cosarg,
                     v,
                     inf.ncoeffmax,
+                    inf.ncovmax,
                     1,     /* alt. hyp. */
                     *b,
+                    *bcov,
                     chisq,
                     NULL);
 
@@ -508,3 +550,63 @@ int sfit_single (struct sfit_lc *lclist, int nlc,
 
   return(rv);
 }
+
+#ifdef USE_LAPACK
+
+/* Computes minimum norm solution and covariance matrix for a linear
+   least squares problem.  Borrowed from library. */
+
+int svdsolcov (double *a, double *b, double *cov, int m, double scale) {
+  int lwork = 6*m;
+  double s[m], u[m*m], vt[m*m], work[lwork];
+  int mthr, info;
+
+  int i, j, k;
+  double thresh, sum, sol;
+
+  /* Perform decomposition */
+  dgesvd_("A", "A",
+	  &m, &m,
+	  a, &m, s, u, &m, vt, &m,
+	  work, &lwork, &info, 1, 1);
+
+  if(scale < 0)
+    /* Machine precision */
+    scale = FLT_RADIX * DBL_EPSILON;
+
+  /* Threshold for singular values */
+  thresh = scale*s[0];
+  if(thresh < DBL_MIN)  /* smallest positive number */
+    thresh = DBL_MIN;
+
+  /* Take reciprocal of elements of s above threshold */
+  for(k = 0; k < m && s[k] > thresh; k++)
+    s[k] = 1.0 / s[k];
+
+  mthr = m;
+
+  /* Compute inverse and solution vector */
+  for(i = 0; i < m; i++) {
+    sol = 0;
+
+    for(j = 0; j < m; j++) {
+      /* i'th row of v multiplied by j'th column of u transpose */
+      sum = 0;
+      for(k = 0; k < mthr; k++)
+	sum += vt[i*m+k]*u[k*m+j] * s[k];
+
+      cov[i*m+j] = sum;
+
+      sol += b[j]*sum;
+    }
+
+    work[i] = sol;
+  }    
+
+  for(i = 0; i < m; i++)
+    b[i] = work[i];
+
+  return(info);
+}
+
+#endif

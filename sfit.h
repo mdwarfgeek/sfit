@@ -33,12 +33,12 @@ int sfit_search (struct sfit_lc *lclist, int nlc,
                  double *chisqper, double *winfunc);
 
 int sfit_null (struct sfit_lc *lclist, int nlc,
-               double **b, int *bstride,
+               double **b, double **bcov, int *bstride,
                double *chisq);
 
 int sfit_single (struct sfit_lc *lclist, int nlc,
                  double v,
-                 double **b, int *bstride,
+                 double **b, double **bcov, int *bstride,
                  double *chisq);
 
 #endif  /* SFIT_H */

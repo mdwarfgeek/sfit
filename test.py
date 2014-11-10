@@ -109,11 +109,11 @@ vbest = (pl+p+offset)*vsamp
 
 print "Best period", 1.0/vbest, "days"
 
-(chinull, bnull) = sfit.null(buf)
-print "Null hypothesis", chinull, bnull
+(chinull, bnull, bcovnull) = sfit.null(buf)
+print "Null hypothesis", chinull, bnull, bcovnull
 
-(chialt, balt) = sfit.single(buf, vbest)
-print "Alternate hypothesis", chialt, balt
+(chialt, balt, bcovalt) = sfit.single(buf, vbest)
+print "Alternate hypothesis", chialt, balt, bcovalt
 
 # Frequency grid for plot.
 v = numpy.linspace(pl, ph, nn)
