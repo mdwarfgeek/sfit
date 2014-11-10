@@ -10,7 +10,8 @@ inc = numpy.distutils.misc_util.get_numpy_include_dirs()
 # libraries.
 
 mod = distutils.core.Extension("sfit",
-                               extra_compile_args=["-pthread",
+                               extra_compile_args=["-O3",
+                                                   "-pthread",
                                                    "-ffast-math",
                                                    "-DWITH_LAPACK"],
                                extra_link_args=["-pthread"],
