@@ -23,7 +23,7 @@ for ilc, lcfile in enumerate(filelist):
   # Read light curve
   lc = numpy.genfromtxt(lcfile,
                         dtype={"names": ("bjd", "mag", "e_mag", "texp",
-                                       "dmag", "fwhm", "ellipt", "airmass",
+                                         "dmag", "fwhm", "ellipt", "airmass",
                                          "xlc", "ylc", "angle",
                                          "skylev", "pkht",
                                          "s", "v", "r", "f",
@@ -130,7 +130,7 @@ for ilc, lc in enumerate(buf):
     if ep is not None:
       nep = ep.shape[0]
     else:
-      nep = 1
+      nep = 0
 
     if idc is not None:
       ndc = numpy.max(idc)+1
