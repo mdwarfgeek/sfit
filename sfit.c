@@ -8,6 +8,10 @@
 #include "sfit.h"
 #include "sincos.h"
 
+#ifndef USE_LAPACK
+#include <lfa.h>
+#endif
+
 /* Structure to pass between threads */
 
 struct sfit_info {
@@ -34,12 +38,6 @@ struct sfit_info {
 /* Prototypes for external stuff */
 
 int get_num_cpus (void);
-
-void qr (double *a, double *s, double *betaarr, int *perm, int n);
-int qrsolve (double *a, double *s, double *betaarr, int *perm,
-             double *b, int n, double rcond);
-int qrinvert (double *a, double *s, double *betaarr, int *perm,
-              double *ainv, int n, double rcond);
 
 #ifdef USE_LAPACK
 void dgesvd_ (char *, char *,
