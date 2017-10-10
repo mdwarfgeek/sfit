@@ -19,6 +19,8 @@ buf = [None]*len(filelist)
 
 window=0
 
+bjdbase = None
+
 for ilc, lcfile in enumerate(filelist):
   # Read light curve
   lc = numpy.genfromtxt(lcfile,
@@ -58,7 +60,10 @@ for ilc, lcfile in enumerate(filelist):
   print "For", lcfile, "fitting", len(segs), "DC offsets"
 
   # Take off first timestamp.
-  t = lcclip["bjd"] - lc[0]["bjd"]
+  if bjdbase is None:
+    bjdbase = lc[0]["bjd"]
+
+  t = lcclip["bjd"] - bjdbase
 
   # Keep track of largest window for deciding frequency sampling.
   if t[-1] > window:
@@ -110,17 +115,17 @@ vbest = (pl+p+offset)*vsamp
 print "Best period", 1.0/vbest, "days"
 
 (chinull, bnull, bcovnull) = sfit.null(buf)
-print "Null hypothesis", chinull, bnull, bcovnull
+#print "Null hypothesis", chinull, bnull, bcovnull
 
 (chialt, balt, bcovalt) = sfit.single(buf, vbest)
-print "Alternate hypothesis", chialt, balt, bcovalt
+#print "Alternate hypothesis", chialt, balt, bcovalt
 
 # Frequency grid for plot.
 v = numpy.linspace(pl, ph, nn)
 v *= vsamp
 
 # Plots.
-npanel = len(buf)+2
+npanel = 2*len(buf)+2
 
 for ilc, lc in enumerate(buf):
     (t, y, wt, ep, idc, iamp) = lc
@@ -151,12 +156,27 @@ for ilc, lc in enumerate(buf):
     blm = bdc[idc] + numpy.dot(bep, ep)
     ycorr = y - blm
 
-    plt.subplot(npanel, 1, ilc+1)
+    plt.subplot(npanel, 1, 2*ilc+1)
+    plt.axis([t[0], t[-1], numpy.max(ycorr), numpy.min(ycorr)])
+
+    plt.plot(t, ycorr, ".", color="black")
+
+    modx = numpy.linspace(t[0], t[-1], 1000)
+    modp = 2*math.pi*vbest*modx
+
+    mody = bsc[0] * numpy.sin(modp) + bsc[1] * numpy.cos(modp)
+
+    plt.plot(modx, mody, color="red")
+
+    plt.ylabel("Delta mag")
+    plt.xlabel("Time from start (days)")
+
+    plt.subplot(npanel, 1, 2*ilc+2)
     plt.axis([0.0, 1.0, numpy.max(ycorr), numpy.min(ycorr)])
 
     phase = numpy.fmod(vbest*t, 1.0)
 
-    plt.plot(phase, ycorr, ".")
+    plt.plot(phase, ycorr, ".", color="black")
     
     modx = numpy.linspace(0.0, 1.0, 1000)
     modp = 2*math.pi*modx
@@ -165,17 +185,27 @@ for ilc, lc in enumerate(buf):
 
     print "Amplitude", math.sqrt(bsc[0]**2 + bsc[1]**2)
 
-    plt.plot(modx, mody)
+    plt.plot(modx, mody, color="red")
+
+    plt.ylabel("Delta mag")
+    plt.xlabel("Phase")
 
 axp = plt.subplot(npanel, 1, npanel-1)
 axp.axis([numpy.min(v), numpy.max(v), numpy.max(ampspec), numpy.min(ampspec)])
-axp.plot(v, ampspec)
-axp.plot([vbest, vbest], plt.ylim(), linestyle='--')
+axp.plot(v, ampspec, color="black")
+axp.plot([vbest, vbest], plt.ylim(), color="red", linestyle='--')
+
+plt.ylabel("sqrt($\chi^2$)")
+
 plt.subplot(npanel, 1, npanel, sharex=axp)
 plt.axis([numpy.min(v), numpy.max(v), 0.0, 1.0])
-plt.plot(v, winfunc)
-plt.plot([vbest, vbest], plt.ylim(), linestyle='--')
+plt.plot(v, winfunc, color="black")
+plt.plot([vbest, vbest], plt.ylim(), color="red", linestyle='--')
 
+plt.xlabel("Frequency (days$^{-1}$)")
+plt.ylabel("Window function")
+
+plt.tight_layout()
 plt.show()
 
 sys.exit(0)
