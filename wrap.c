@@ -170,7 +170,7 @@ static int get_lc (struct lc_list *l,
     lc->y = PyArray_DATA(l->yarr[ilc]);
     lc->wt = PyArray_DATA(l->wtarr[ilc]);
 
-    if(eparg) {
+    if(eparg && eparg != Py_None) {
       /* External parameters */
       GETNP(eparg, NPY_DOUBLE, l->eparr[ilc]);
 
@@ -230,7 +230,7 @@ static int get_lc (struct lc_list *l,
     }
     else {
       lc->idc = NULL;
-      lc->ndc = 1;
+      lc->ndc = 0;
     }
 
     if(iamparg && iamparg != Py_None) {

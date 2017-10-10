@@ -64,8 +64,8 @@ static inline int sfit_compute (struct sfit_info *inf,
                                 double *bcov_r,
                                 volatile double *chisq_r,
                                 volatile double *winfunc_r) {
-  int ilc, idp, idc, iep, iamp, k, j, ncoeff;
-  int pdc, pamp;
+  int ilc, idp, iep, k, j, ncoeff;
+  int pamp;
 
   struct sfit_lc *lc;
   double phi, wt;
@@ -119,15 +119,15 @@ static inline int sfit_compute (struct sfit_info *inf,
 
     /* Accumulate sums for fit */
     for(idp = 0; idp < lc->ndp; idp++) {
+      wt = lc->wt[idp];
+
       /* Blank vector */
       for(k = 0; k < ncoeff; k++)
         c[k] = 0;
 
       /* DC */
-      if(lc->ndc > 1)
+      if(lc->ndc > 0)
         c[lc->off_dc + lc->idc[idp]] = 1.0;
-      else
-        c[lc->off_dc] = 1.0;
 
       /* External parameters */
       for(iep = 0; iep < lc->nep; iep++)
@@ -142,11 +142,13 @@ static inline int sfit_compute (struct sfit_info *inf,
         
         c[pamp]   = sinarg[idp];
         c[pamp+1] = cosarg[idp];
+        
+        a0 += wt;
+        a1 += sinarg[idp] * wt;
+        a2 += cosarg[idp] * wt;
       }
 
       /* Outer product, interesting parts only */
-      wt = lc->wt[idp];
-
       for(k = 0; k < ncoeff; k++) {
         for(j = 0; j <= k; j++)
           a[k*ncoeff+j] += c[k]*c[j] * wt;
@@ -155,56 +157,42 @@ static inline int sfit_compute (struct sfit_info *inf,
       }
     }
 
-    if(dosc) {
-      /* Accumulate sums for window function */
-      for(idc = 0; idc < lc->ndc; idc++) {
-        pdc = lc->off_dc + idc;
-        
-        a0 += a[pdc*ncoeff+pdc];
-        
-        for(iamp = 0; iamp < lc->namp; iamp++) {
-          pamp = lc->off_amp + 2*iamp;
-          
-          a1 += a[pamp*ncoeff+idc];
-          a2 += a[(pamp+1)*ncoeff+idc];
-        }
-      }
-    }
-
     /* Fill in duplicates */
     for(k = 0; k < ncoeff; k++)
       for(j = k+1; j < ncoeff; j++)
         a[k*ncoeff+j] = a[j*ncoeff+k];
 
+    if(ncoeff > 0) {
 #ifdef USE_LAPACK
-    /* Do they want covariance? */
-    if(bcov_r)
-      info = svdsolcov(a, b,
-                       &(bcov_r[ilc*ncoeffmax*ncoeffmax]),
-                       ncoeff, -1.0);
-    else {
-      /* Solve */
-      nrhs = 1;
-      rcond = -1.0;
+      /* Do they want covariance? */
+      if(bcov_r)
+        info = svdsolcov(a, b,
+                         &(bcov_r[ilc*ncoeffmax*ncoeffmax]),
+                         ncoeff, -1.0);
+      else {
+        /* Solve */
+        nrhs = 1;
+        rcond = -1.0;
+        
+        dgelss_(&ncoeff, &ncoeff, &nrhs,
+                a, &ncoeff, b, &ncoeff, s, &rcond, &rank,
+                dwork, &lwork, &info);
+      }
       
-      dgelss_(&ncoeff, &ncoeff, &nrhs,
-              a, &ncoeff, b, &ncoeff, s, &rcond, &rank,
-              dwork, &lwork, &info);
-    }
-    
-    /* XXX - error handling */
-    
-    if(info)
-      fprintf(stderr, "dgelss: %d", info);
+      /* XXX - error handling */
+      
+      if(info)
+        fprintf(stderr, "dgelss: %d", info);
 #else
-    qr(a, s, beta, perm, ncoeff);
-    qrsolve(a, s, beta, perm, b, ncoeff, -1.0);
+      qr(a, s, beta, perm, ncoeff);
+      qrsolve(a, s, beta, perm, b, ncoeff, -1.0);
 
-    if(bcov_r)
-      qrinvert(a, s, beta, perm,
-               &(bcov_r[ilc*ncoeffmax*ncoeffmax]),
-               ncoeff, -1.0);
+      if(bcov_r)
+        qrinvert(a, s, beta, perm,
+                 &(bcov_r[ilc*ncoeffmax*ncoeffmax]),
+                 ncoeff, -1.0);
 #endif
+    }
 
     /* Do they want b? */
     if(b_r) {
@@ -214,10 +202,10 @@ static inline int sfit_compute (struct sfit_info *inf,
 
     /* Accumulate chi^2 */
     for(idp = 0; idp < lc->ndp; idp++) {
-      if(lc->ndc > 1)
+      if(lc->ndc > 0)
         mod = b[lc->off_dc + lc->idc[idp]];
       else
-        mod = b[lc->off_dc];
+        mod = 0;
 
       if(lc->namp > 1)
         pamp = lc->off_amp + 2*lc->iamp[idp];
