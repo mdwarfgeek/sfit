@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
+
 import sys
 import math
 import numpy
@@ -9,10 +11,10 @@ import matplotlib.pyplot as plt
 argc = len(sys.argv)
 
 if argc < 3:
-  print "Usage:\t", sys.argv[0], "lcfile [...] pmin pmax"
+  print("Usage:\t", sys.argv[0], "lcfile [...] pmin pmax")
   sys.exit(1)
 
-(pmin, pmax) = map(float, sys.argv[argc-2:argc])
+(pmin, pmax) = list(map(float, sys.argv[argc-2:argc]))
 filelist = sys.argv[1:argc-2]
 
 buf = [None]*len(filelist)
@@ -57,7 +59,7 @@ for ilc, lcfile in enumerate(filelist):
   # Remap them to decide where we put the new DCs.
   idc = [segs[s] for s in lcclip["s"]]
 
-  print "For", lcfile, "fitting", len(segs), "DC offsets"
+  print("For", lcfile, "fitting", len(segs), "DC offsets")
 
   # Take off first timestamp.
   if bjdbase is None:
@@ -112,7 +114,7 @@ else:
 
 vbest = (pl+p+offset)*vsamp
 
-print "Best period", 1.0/vbest, "days"
+print("Best period", 1.0/vbest, "days")
 
 (chinull, bnull, bcovnull) = sfit.null(buf)
 #print "Null hypothesis", chinull, bnull, bcovnull
@@ -183,7 +185,7 @@ for ilc, lc in enumerate(buf):
 
     mody = bsc[0] * numpy.sin(modp) + bsc[1] * numpy.cos(modp)
 
-    print "Amplitude", math.sqrt(bsc[0]**2 + bsc[1]**2)
+    print("Amplitude", math.sqrt(bsc[0]**2 + bsc[1]**2))
 
     plt.plot(modx, mody, color="red")
 

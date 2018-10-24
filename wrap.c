@@ -607,14 +607,46 @@ static PyMethodDef sfit_methods[] = {
   { NULL, NULL, 0, NULL }
 };
 
+#if PY_MAJOR_VERSION >= 3
+static struct PyModuleDef sfit_mod = {
+  PyModuleDef_HEAD_INIT,
+  "sfit",       /* m_name */
+  NULL,         /* m_doc */
+  -1,           /* m_size */
+  sfit_methods, /* m_methods */
+  NULL,         /* m_reload */
+  NULL,         /* m_traverse */
+  NULL,         /* m_clear */
+  NULL,         /* m_free */
+};
+#endif
+
+#if PY_MAJOR_VERSION >= 3
+PyMODINIT_FUNC PyInit_sfit (void) {
+#else
 PyMODINIT_FUNC initsfit (void) {
+#endif
   PyObject *m;
 
   /* Init module */
+#if PY_MAJOR_VERSION >= 3
+  m = PyModule_Create(&sfit_mod);
+#else
   m = Py_InitModule("sfit", sfit_methods);
+#endif
   if(!m)
-    return;
+    goto error;
 
   /* Import numpy */
   import_array();
+
+#if PY_MAJOR_VERSION >= 3
+  return(m);
+  
+ error:
+  return(NULL);
+#else
+ error:
+  return;
+#endif
 }
