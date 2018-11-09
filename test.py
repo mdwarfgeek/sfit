@@ -158,6 +158,15 @@ for ilc, lc in enumerate(buf):
     blm = bdc[idc] + numpy.dot(bep, ep)
     ycorr = y - blm
 
+    # T0
+    phi = math.atan2(bsc[1], bsc[0]) / (2.0*math.pi)
+    if phi < 0.0:
+      phi += 1.0
+
+    t0 = bjdbase-phi/vbest
+
+    print("Dataset", ilc+1, "T0 =", t0)
+
     plt.subplot(npanel, 1, 2*ilc+1)
     plt.axis([t[0], t[-1], numpy.max(ycorr), numpy.min(ycorr)])
 
