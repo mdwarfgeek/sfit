@@ -1,0 +1,661 @@
+#!/usr/bin/env python
+
+import argparse
+import math
+import re
+import sys
+
+import numpy
+import emcee
+
+import matplotlib
+import matplotlib.gridspec
+
+from nlfit import *
+from medsig import *
+
+import fussyastronomer
+
+# usual usage: fitell period lcfile [...]
+
+# Deal with command-line arguments.
+ap = argparse.ArgumentParser()
+ap.add_argument("period", type=float, help="initial period")
+ap.add_argument("filelist", metavar="file", nargs="+", help="light curve files")
+ap.add_argument("-m", help="run MCMC storing output to file M")
+ap.add_argument("-n", type=int, help="set number of MCMC samples to N")
+args = ap.parse_args()
+
+# Type 42 fonts needed for publication.
+matplotlib.rcParams["pdf.fonttype"] = 42
+matplotlib.rcParams["ps.fonttype"] = 42
+matplotlib.rcParams["figure.subplot.left"] = 0.15
+matplotlib.rcParams["figure.subplot.right"] = 0.85
+matplotlib.rcParams["font.size"] = 14
+
+# Make sure matplotlib doesn't try to use X11 if we're running
+# in non-interactive mode.
+if args.m is not None:
+  matplotlib.use('Agg')
+
+import matplotlib.pyplot as plt
+
+# matplotlib default is 8x6 but we need more height
+figsize = (8.0, 10.0)  # inches
+
+# Fixed random number seed to make results reproducible.
+numpy.random.seed(42)
+
+# Subtract this time offset to improve numerics.
+tbase = None
+
+# Data go here.
+bjd = numpy.empty([0])
+mag = numpy.empty([0])
+e_mag = numpy.empty([0])
+airmass = numpy.empty([0])
+cm = numpy.empty([0])
+dataset = numpy.empty([0], dtype=numpy.int)
+lcnum = numpy.empty([0], dtype=numpy.int)
+
+nlc = 0
+nds = 0
+
+# Read data (lc files).
+for filename in args.filelist:
+  lc = numpy.genfromtxt(filename,
+                        dtype={"names": ("bjd", "mag", "e_mag", "texp",
+                                         "dmag", "fwhm", "ellipt", "airmass",
+                                         "xlc", "ylc", "angle",
+                                         "skylev", "pkht",
+                                         "s", "v", "r", "f",
+                                         "cm", "corr_mag"),
+                               "formats": ("f8", "f4", "f4", "f4",
+                                           "f4", "f4", "f4", "f4",
+                                           "f8", "f8", "f4",
+                                           "f4", "f4",
+                                           "i1", "i1", "i1", "i1",
+                                           "f4", "f4") })
+
+  # Which segments are populated?
+  segs = {s: -1 for s in lc["s"]}
+
+  # Assign new indices.
+  for i, s in enumerate(sorted(segs.keys())):
+    segs[s] = i
+
+  # Remap them to decide where we put the new DCs.
+  idclist = numpy.array([segs[s] for s in lc["s"]], dtype=numpy.int)
+
+  print "For", filename, "fitting", len(segs), "DC offsets"
+
+  for idc in range(len(segs)):
+    thislc = numpy.extract(idclist == idc, lc)
+
+    if tbase is None:
+      tbase = thislc[0]["bjd"]
+
+    thisbjd = thislc["bjd"] - tbase
+    thismag = thislc["mag"]
+    thise_mag = thislc["e_mag"]
+    thisairmass = thislc["airmass"]
+    thiscm = thislc["cm"]
+
+    # Dataset index so we know which z.p. coeff to use.
+    thisdataset = numpy.empty_like(thisbjd, dtype=numpy.int)
+    thisdataset.fill(nds)
+
+    thislc = numpy.empty_like(thisbjd, dtype=numpy.int)
+    thislc.fill(nlc)
+
+    # Append to main arrays.
+    bjd = numpy.append(bjd, thisbjd)
+    mag = numpy.append(mag, thismag)
+    e_mag = numpy.append(e_mag, thise_mag)
+    airmass = numpy.append(airmass, thisairmass)
+    cm = numpy.append(cm, thiscm)
+    dataset = numpy.append(dataset, thisdataset)
+    lcnum = numpy.append(lcnum, thislc)
+
+    nds += 1
+
+  nlc += 1
+
+# Adjust time offset to mean of data to improve stability.
+dtbase = numpy.mean(bjd)
+
+bjd -= dtbase
+tbase += dtbase
+
+# Allocate main parameter vector, init to zero.
+NPAR = 3
+
+PAR_LOGP = 0
+PAR_A1   = 1
+PAR_B1   = 2
+
+parm = numpy.zeros(NPAR+nds+nlc+1, dtype=numpy.double)
+parm_names = [ "log P", "A_1", "B_1" ]
+parm_units = [ "", "mag", "mag" ]
+parm_texsym = [ "\\log P", "A_1", "B_1" ]
+
+fixed = numpy.zeros_like(parm)
+
+pzp = NPAR
+
+for ids in range(nds):
+  parm[pzp+ids] = 0
+  parm_names.append("m_{0:d}".format(ids))
+  parm_units.append("mag")
+  parm_texsym.append("m_{0:d}".format(ids))
+
+pes = NPAR + nds
+
+for ilc in range(nlc):
+  parm[pes+ilc] = 1.0
+  fixed[pes+ilc] = 1
+  parm_names.append("s_{0:d}".format(ilc))
+  parm_units.append("")
+  parm_texsym.append("s_{0:d}".format(ilc))
+
+pcm = NPAR + nds + nlc
+
+parm[pcm] = 1.0
+parm_names.append("cm")
+parm_units.append("")
+parm_texsym.append("c")
+
+ndim = len(parm)
+
+# Initial guesses, should really do the linear least-squares fit first
+# to supply these because it's much more robust than the L-M.
+parm[PAR_LOGP] = math.log10(args.period)
+
+# Baseline model.
+def obs_bl (ourparm):
+  bl = ourparm[pzp + dataset]
+  bl += ourparm[pcm] * cm
+
+  return bl
+
+# Signal model.
+def sig_mod (ourparm, t):
+  omega = 2.0*math.pi * 10.0**(-ourparm[PAR_LOGP])
+
+  s1 = numpy.sin(omega * t)
+  c1 = numpy.cos(omega * t)
+
+  ymod = (ourparm[PAR_A1] * s1 + ourparm[PAR_B1] * c1)
+
+  return ymod
+
+# Objective function.
+def obj_func (ourparm, ymod):
+  ymod[:] = sig_mod(ourparm, bjd)
+  ymod += obs_bl(ourparm)
+
+# A simple way to interface this to "lmmin".
+def fit_func (trial, ymod):
+  ourparm = numpy.copy(parm)
+  ourparm[:] = trial
+
+  obj_func(ourparm, ymod)
+
+# Function returning log of posterior probability for MCMC.
+def logpost (trial, x, y, yerr, flag):
+  # Parameter vector.
+  ourparm = numpy.copy(parm)
+  ourparm[:] = trial
+
+  # Check ranges.
+  s = ourparm[pes:pes+nlc]
+
+  vecok = numpy.all(s > 0)
+
+  if not vecok:
+    print "not vecok for", ourparm
+    return -numpy.inf
+
+  # Likelihood.
+  ymod = numpy.empty_like(y, dtype=numpy.double)
+  obj_func(ourparm, ymod)
+
+  errscl = s[lcnum]
+
+  wt = (1.0 / (yerr[flag] * errscl[flag]))**2
+
+  loglike = -0.5*(numpy.sum(wt*(y[flag]-ymod[flag])**2 - numpy.log(wt)))
+
+  # Priors on all "s" parameters.
+  logprior = numpy.sum(numpy.log(s))
+
+  return loglike - logprior
+
+def plot_chain(samp, outfile):
+  npanel = 0
+
+  for iparm in range(ndim):
+    # Skip magnitude zero point nuisance parameters.
+    if iparm >= pzp and iparm < pes:
+      continue
+
+    npanel += 1
+
+  ipanel = 0
+
+  fig = plt.figure(figsize=figsize)
+
+  for iparm in range(ndim):
+    # Skip magnitude zero point nuisance parameters.
+    if iparm >= pzp and iparm < pes:
+      continue
+
+    plt.subplot(npanel, 1, ipanel+1)
+
+    for iwalk in range(nwalk):
+      plt.plot(samp.chain[iwalk,:,iparm])
+
+    plt.ylabel(parm_names[iparm])
+
+    ipanel += 1
+
+  fig.savefig(outfile)
+
+# Start with all data points included.
+newflag = numpy.ones_like(mag, dtype=numpy.bool)
+
+# Clipping iteration loop.
+for iiter in range(5):
+  vfit = mag
+  e_vfit = e_mag
+  flag = newflag
+
+  vfinal, verr, chisq, ndof = nlfit(fit_func, parm, fixed, vfit, e_vfit, flag=flag)
+
+  # Residual
+  ymod = numpy.empty_like(mag, dtype=numpy.double)
+  fit_func(vfinal, ymod)
+            
+  resid = mag - ymod
+
+  # 5-sigma clip using robust estimator.
+  (medoff, sigoff) = medsig(resid)
+  newflag = numpy.absolute(resid-medoff) < 5*sigoff
+
+  print "Iteration", iiter, sigoff, ndof
+
+  if numpy.sum(newflag) == numpy.sum(flag):
+    # DONE
+    break
+
+parm[:] = vfinal
+perr = numpy.copy(verr)
+
+# Compute error scaling initial guesses from chi^2 per
+# effective dof for each light curve individually.
+for ilc in range(nlc):
+  ww = numpy.logical_and(lcnum == ilc, flag)
+
+  chisq = numpy.sum((resid[ww] / e_mag[ww])**2)
+
+  # Effective ndof assuming each light curve contributes equally.
+  endof = numpy.sum(ww) - (ndim / nlc)
+
+  parm[pes+ilc] = math.sqrt(chisq / endof)
+
+  print "LC", ilc, "chi squared =", chisq, "ndof =", ndof
+
+# Final parameters.
+print "L-M parameters:"
+
+for iparm in range(ndim):
+  value = parm[iparm]
+
+  print "{0:<16} {1:14.6f} +/- {2:8.6f} {3}".format(parm_names[iparm],
+                                                    value,
+                                                    verr[iparm],
+                                                    parm_units[iparm])
+print 'residual scatter =', sigoff
+
+if args.m is not None:
+  # Init MC
+  nwalk = 100
+
+  vfit = mag
+  e_vfit = e_mag
+
+  samp = emcee.EnsembleSampler(nwalk, ndim, logpost,
+                               args=(bjd, vfit, e_vfit, flag))
+
+  cent = numpy.copy(parm)
+  pert = 3*numpy.copy(verr)
+
+  for iparm in range(ndim):
+    if fixed[iparm]:
+      pert[iparm] = 0.1
+
+  pos = [cent + pert * numpy.random.randn(ndim) for i in range(nwalk)]
+
+  if args.n is not None:
+    nsim = args.n
+  else:
+    nsim = 20000
+
+  nburn = nsim // 2  # need about 10k for production use
+  if nburn < 1000:
+    nburn = 1000
+
+  print "MCMC using", nwalk, "walkers nburn =", nburn, "nsim =", nsim
+  print "Will produce", nburn*nwalk, "burn-in and", nsim*nwalk, "final samples"
+
+  print "Burn start"
+
+  pos, prob, state = samp.run_mcmc(pos, nburn,
+                                   rstate0=numpy.random.get_state())
+
+  print "Burn done"
+
+  plot_chain(samp, args.m + "_burn.png")
+
+  samp.reset()
+
+  print "Main start"
+
+  pos, prob, state = samp.run_mcmc(pos, nsim)
+
+  print "Main done"
+
+  plot_chain(samp, args.m + "_chains.png")
+
+  print "Acceptance fraction:", samp.acceptance_fraction
+  print "Autocorrelation lengths:", samp.acor
+
+  ch = samp.flatchain
+
+#  numpy.savetxt("mcmc.chain.gz", ch)
+  numpy.save(args.m, ch, allow_pickle=False)
+
+  # Corner plot of only the model parameters (excuding nuisance).
+  import corner
+
+  nonnuisance = pzp
+  chnn = ch[:,0:nonnuisance]
+  
+  fig = corner.corner(chnn, labels=parm_names)
+  fig.savefig(args.m + "_corner.pdf")
+
+  # Output.
+  lfp = open(args.m + "_lcfit.txt", "w")
+  tfp = open(args.m + "_lcfit.tex", "w")
+
+  print >>lfp, "MC parameters:"
+  print "MC parameters:"
+
+  print >>tfp, "\\hline"
+  print >>tfp, "MCMC parameters\\\\"
+  print >>tfp, "\\hline"
+
+  vmed = numpy.empty([ndim])
+  vad = numpy.empty([ndim])
+  vndp = numpy.empty([ndim], dtype=numpy.int)
+
+  for iparm in range(ndim):
+    vec = ch[:,iparm]
+
+    med = numpy.median(vec)
+    ad = numpy.absolute(vec-med)
+
+    err = numpy.percentile(ad, 68.3)
+
+    ndp = fussyastronomer.ndp(err)
+
+    vmed[iparm] = med
+    vad[iparm] = err
+    vndp[iparm] = ndp
+
+    line = "{0:<16} {1:14.6f} +/- {2:8.6f} {3}".format(parm_names[iparm],
+                                                       med,
+                                                       err,
+                                                       parm_units[iparm])
+
+    print >>lfp, line
+    print line
+
+  # TeX output.
+  for iparm in range(ndim):
+    med = vmed[iparm]
+    err = vad[iparm]
+
+    ndp = vndp[iparm]
+
+    parstr = "$" + parm_texsym[iparm] + "$"
+    if parm_units[iparm] != "":
+      utex = parm_units[iparm]
+
+      if utex == "Msol":
+        utex = "${\\rm M}_\\odot$"
+
+      parstr += " (" + utex + ")"
+
+    texline = "{0:<36} & ${1:s} \\pm {2:s}$ \\\\".format(parstr,
+                                                         fussyastronomer.format(med, ndp),
+                                                         fussyastronomer.format(err, ndp))
+
+    print >>tfp, texline   
+
+  # Phase needs special treatment to ensure all MCMC samples get wrapped
+  # the same way.  To do this, we record a reference phase here derived
+  # from the existing posterior medians for the sin and cos coeffs here:
+  parm[:] = vmed
+
+  ref_phi1 = math.atan2(parm[PAR_B1], -parm[PAR_A1]) / (2.0*math.pi)
+
+  # Derived parameters.
+  nsamp = ch.shape[0]
+
+  dernames = ["P", "T_0", "amp"]
+  dertexsym = ["P", "T_0", "amp"]
+  derunits = ["days", "BJD", "mag"]
+
+  vder = numpy.empty([nsamp, len(dernames)])
+
+  for isamp in range(nsamp):
+    thissamp = ch[isamp]
+    parm[:] = thissamp
+
+    # Period.
+    period = 10.0**parm[PAR_LOGP]
+
+    # Brightening zero-crossing.
+    phi1 = math.atan2(parm[PAR_B1], -parm[PAR_A1]) / (2.0*math.pi)
+
+    # Force the correct revolution for phase by taking the difference
+    # and wrapping it into (-0.5,0.5].
+    dphi = phi1 - ref_phi1
+    n = round(dphi)
+    phi1 = ref_phi1 + dphi - n
+
+    # Semiamplitude.
+    amp1 = math.hypot(parm[PAR_A1], parm[PAR_B1])
+
+    vder[isamp,:] = [period, phi1*period, amp1]
+
+  print >>lfp, "Derived parameters:"
+  print "Derived parameters:"
+
+  print >>tfp, "\\hline"
+  print >>tfp, "Derived parameters\\\\"
+  print >>tfp, "\\hline"
+
+  for ipar, name in enumerate(dernames):
+    unit = derunits[ipar]
+
+    vec = vder[:,ipar]
+
+    med = numpy.median(vec)
+    ad = numpy.absolute(vec-med)
+
+    err = numpy.percentile(ad, 68.3)
+
+    if name == "T_0":
+      med += tbase
+
+    line = "{0:<16} {1:14.6f} +/- {2:8.6f} {3}".format(name, med, err, unit)
+
+    print >>lfp, line
+    print line
+
+    ndp = fussyastronomer.ndp(err)
+
+    parstr = "$" + dertexsym[ipar] + "$"
+    if unit != "":
+      utex = unit
+
+      if utex == "Msol":
+        utex = "${\\rm M}_\\odot$"
+
+      parstr += " (" + utex + ")"
+
+    texline = "{0:<36} & ${1:s} \\pm {2:s}$ \\\\".format(parstr,
+                                                         fussyastronomer.format(med, ndp),
+                                                         fussyastronomer.format(err, ndp))
+
+    print >>tfp, texline
+
+  lfp.close()
+  tfp.close()
+
+  # Update parameters.
+  parm[:] = vmed
+  perr[:] = vad
+
+  # Update residual.
+  ymod = numpy.empty_like(mag, dtype=numpy.double)
+  fit_func(vmed, ymod)
+            
+  resid = mag - ymod
+
+# Scaled uncertainties.
+s = parm[pes:pes+nlc]
+errscl = s[lcnum]
+scl_e_mag = e_mag * errscl
+
+# chi^2
+chisq = numpy.sum((resid[flag] / scl_e_mag[flag])**2)
+ndof = numpy.sum(flag) - ndim
+
+print 'Post-MC chi squared =', chisq, 'ndof =', ndof
+
+# Take off just "observational" baseline for OOE plots.
+ooeplot_dmag = mag - obs_bl(parm)
+
+# Plot OOE.
+fig = plt.figure(figsize=figsize)
+
+gs = matplotlib.gridspec.GridSpec(2, 1, height_ratios=[2, 1], hspace=0)
+
+plt.subplot(gs[0])
+plt.gca().set_axisbelow(True)
+plt.gca().get_xaxis().set_ticklabels([])
+
+period = 10.0**parm[PAR_LOGP]
+
+phiout = bjd / period
+phiout = phiout - numpy.floor(phiout)
+
+xmp = numpy.linspace(0.0, 1.0, 1001)
+ymp = sig_mod(parm, xmp * period)
+
+# Bins.
+nbin = 50
+ibin = numpy.arange(nbin)
+
+binstart = (ibin+0.0) / nbin
+binmid   = (ibin+0.5) / nbin
+binend   = (ibin+1.0) / nbin
+
+binsize = 1.0 / nbin
+
+# Plot data.
+wwp = flag
+
+plt.errorbar(phiout[wwp], ooeplot_dmag[wwp], scl_e_mag[wwp],
+             fmt="none", ecolor="#A0A0A0")
+
+# Plot model.
+plt.plot(xmp, ymp, color="red")
+
+# Autoscaler gets really messed up by points with huge uncertainties.
+meddmag, sigdmag = medsig(ooeplot_dmag[wwp])
+mederr, sigerr = medsig(scl_e_mag[wwp])
+
+ymin = meddmag+5*sigdmag+mederr
+ymax = meddmag-5*sigdmag-mederr
+
+plt.ylim(ymin, ymax)
+
+biny = numpy.zeros_like(binstart)
+binw = numpy.zeros_like(binstart)  
+
+for ibin in range(nbin):
+  wwb = numpy.logical_and(phiout >= binstart[ibin], phiout < binend[ibin])
+  wwu = numpy.logical_and(wwp, wwb)
+  
+  y = ooeplot_dmag[wwu]
+  wt = 1.0 / (scl_e_mag[wwu]**2)
+  
+  biny[ibin] += numpy.sum(y * wt)
+  binw[ibin] += numpy.sum(wt)
+
+usebin = binw > 0
+
+plt.plot(binmid[usebin], biny[usebin]/binw[usebin], "o", color="black")
+
+plt.ylim(ymin, ymax)
+plt.xlim(0.0, 1.0)
+
+plt.ylabel("$\\Delta$ mag")
+
+plt.subplot(gs[1])
+#plt.gca().invert_yaxis()
+plt.gca().set_axisbelow(True)
+
+# Plot data.
+wwp = flag
+
+plt.errorbar(phiout[wwp], resid[wwp], scl_e_mag[wwp],
+             fmt="none", ecolor="#A0A0A0")
+
+plt.axhline(0.0, color="red")
+
+medresid, sigresid = medsig(resid[wwp])
+
+biny = numpy.zeros_like(binstart)
+binw = numpy.zeros_like(binstart)  
+
+for ibin in range(nbin):
+  wwb = numpy.logical_and(phiout >= binstart[ibin], phiout < binend[ibin])
+  wwu = numpy.logical_and(wwp, wwb)
+  
+  y = resid[wwu]
+  wt = 1.0 / (scl_e_mag[wwu]**2)
+  
+  biny[ibin] += numpy.sum(y * wt)
+  binw[ibin] += numpy.sum(wt)
+
+usebin = binw > 0
+
+plt.plot(binmid[usebin], biny[usebin]/binw[usebin], "o", color="black")
+
+plt.xlim(0.0, 1.0)
+plt.ylim(medresid+5*sigresid, medresid-5*sigresid)
+
+plt.ylabel("Residual")
+plt.xlabel("Phase relative to first data point")
+
+if args.m is None:
+  plt.show()
+else:
+  fig.savefig(args.m + "_lcfit.pdf")
+  fig.savefig(args.m + "_lcfit.eps")
+
