@@ -16,7 +16,7 @@ from medsig import *
 
 import fussyastronomer
 
-# usual usage: fitell period lcfile [...]
+# usual usage: mcmc period lcfile [...]
 
 # Deal with command-line arguments.
 ap = argparse.ArgumentParser()
@@ -201,6 +201,11 @@ def fit_func (trial, ymod):
 
   obj_func(ourparm, ymod)
 
+def vecok (ourparm):
+  s = ourparm[pes:pes+nlc]
+
+  return(numpy.all(s > 0))
+
 # Function returning log of posterior probability for MCMC.
 def logpost (trial, x, y, yerr, flag):
   # Parameter vector.
@@ -210,9 +215,7 @@ def logpost (trial, x, y, yerr, flag):
   # Check ranges.
   s = ourparm[pes:pes+nlc]
 
-  vecok = numpy.all(s > 0)
-
-  if not vecok:
+  if not vecok(ourparm):
     print "not vecok for", ourparm
     return -numpy.inf
 
@@ -334,7 +337,22 @@ if args.m is not None:
     if fixed[iparm]:
       pert[iparm] = 0.1
 
-  pos = [cent + pert * numpy.random.randn(ndim) for i in range(nwalk)]
+  pos = [None]*nwalk
+
+  for iwalk in range(nwalk):
+    trial = None
+
+    for isim in range(100):
+      trial = cent + pert * numpy.random.randn(ndim)
+
+      isok = vecok(trial)
+      if isok:
+        break
+      
+    if not isok:
+      raise RuntimeError("couldn't find valid starting point")
+
+    pos[iwalk] = trial
 
   if args.n is not None:
     nsim = args.n
