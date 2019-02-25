@@ -163,7 +163,9 @@ for ilc, lc in enumerate(buf):
     if phi < 0.0:
       phi += 1.0
 
-    t0 = bjdbase-phi/vbest
+    ioff = round(numpy.median(t) * vbest)  # move to middle of data set
+
+    t0 = bjdbase+(ioff-phi)/vbest
 
     print("Dataset", ilc+1, "T0 =", t0)
 
