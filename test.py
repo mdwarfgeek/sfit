@@ -40,7 +40,7 @@ for ilc, lcfile in enumerate(filelist):
                                            "f4", "f4") })
 
   # Make sure sorted on time.
-  numpy.sort(lc, order="bjd")
+  lc = numpy.sort(lc, order="bjd")
 
   # 5-sigma clip.
   y = lc["mag"]
@@ -155,7 +155,9 @@ for ilc, lc in enumerate(buf):
     bsc = b[ndc+nep:]     # sin, cos, sin, cos, ...
 
     # "Corrected" y array
-    blm = bdc[idc] + numpy.dot(bep, ep)
+    blm = bdc[idc]
+    if nep > 0:
+      blm += numpy.dot(bep, ep)
     ycorr = y - blm
 
     # T0
