@@ -8,6 +8,9 @@ import numpy
 import sfit
 import matplotlib.pyplot as plt
 
+# Figure size based on pgplot.
+figsize = (10.5, 7.8)  # inches
+
 argc = len(sys.argv)
 
 if argc < 3:
@@ -127,6 +130,8 @@ v = numpy.linspace(pl, ph, nn)
 v *= vsamp
 
 # Plots.
+fig = plt.figure(figsize=figsize)
+
 npanel = 2*len(buf)+2
 
 for ilc, lc in enumerate(buf):
@@ -173,6 +178,9 @@ for ilc, lc in enumerate(buf):
 
     plt.subplot(npanel, 1, 2*ilc+1)
     plt.axis([t[0], t[-1], numpy.max(ycorr), numpy.min(ycorr)])
+
+    if ilc == 0:
+      plt.title("P = {0:.3f}d".format(1.0/vbest))
 
     plt.plot(t, ycorr, ".", color="black")
 
