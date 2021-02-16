@@ -6,7 +6,9 @@ import sys
 import math
 import numpy
 import sfit
+
 import matplotlib.pyplot as plt
+import matplotlib.gridspec
 
 # Figure size based on pgplot.
 figsize = (10.5, 7.8)  # inches
@@ -64,9 +66,9 @@ for ilc, lcfile in enumerate(filelist):
 
   print("For", lcfile, "fitting", len(segs), "DC offsets")
 
-  # Take off first timestamp.
+  # Take off floor of first timestamp.
   if bjdbase is None:
-    bjdbase = lc[0]["bjd"]
+    bjdbase = math.floor(lc[0]["bjd"])
 
   t = lcclip["bjd"] - bjdbase
 
@@ -116,8 +118,9 @@ else:
     offset = 0.0
 
 vbest = (pl+p+offset)*vsamp
+pbest = 1.0 / vbest
 
-print("Best period", 1.0/vbest, "days")
+print("Best period", pbest, "days")
 
 (chinull, bnull, bcovnull) = sfit.null(buf)
 #print "Null hypothesis", chinull, bnull, bcovnull
@@ -129,10 +132,13 @@ print("Best period", 1.0/vbest, "days")
 v = numpy.linspace(pl, ph, nn)
 v *= vsamp
 
+# As period.
+pspec = 1.0 / v
+
 # Plots.
 fig = plt.figure(figsize=figsize)
 
-npanel = 2*len(buf)+2
+nbin = 100
 
 for ilc, lc in enumerate(buf):
     (t, y, wt, ep, idc, iamp) = lc
@@ -165,6 +171,9 @@ for ilc, lc in enumerate(buf):
       blm += numpy.dot(bep, ep)
     ycorr = y - blm
 
+    # Uncertainty.
+    yerr = numpy.sqrt(1.0 / wt)
+    
     # T0
     phi = math.atan2(bsc[1], bsc[0]) / (2.0*math.pi)
     if phi < 0.0:
@@ -176,30 +185,57 @@ for ilc, lc in enumerate(buf):
 
     print("Dataset", ilc+1, "T0 =", t0)
 
-    plt.subplot(npanel, 1, 2*ilc+1)
-    plt.axis([t[0], t[-1], numpy.max(ycorr), numpy.min(ycorr)])
+    gs = matplotlib.gridspec.GridSpec(2, 1)
+    
+    gsh = matplotlib.gridspec.GridSpecFromSubplotSpec(2, 1, hspace=0, subplot_spec=gs[0])
+    
+    axt = fig.add_subplot(gsh[0])
 
-    if ilc == 0:
-      plt.title("P = {0:.3f}d".format(1.0/vbest))
+    axt.errorbar(t, ycorr, yerr, fmt="none", ecolor="#A0A0A0", capsize=2, alpha=0.5)
 
-    plt.plot(t, ycorr, ".", color="black")
+    bins = numpy.linspace(t[0], t[-1], nbin+1)
 
+    xb = 0.5*(bins[0:nbin] + bins[1:nbin+1])
+    
+    ybn = numpy.histogram(t, bins=bins, weights=ycorr*wt)[0]
+    ybd = numpy.histogram(t, bins=bins, weights=wt)[0]
+
+    wb = ybd > 0
+    
+    axt.plot(xb[wb], ybn[wb]/ybd[wb], "o", color="black")
+    
     modx = numpy.linspace(t[0], t[-1], 1000)
     modp = 2*math.pi*vbest*modx
 
     mody = bsc[0] * numpy.sin(modp) + bsc[1] * numpy.cos(modp)
 
-    plt.plot(modx, mody, color="red")
+    axt.plot(modx, mody, color="red")
 
-    plt.ylabel("Delta mag")
-    plt.xlabel("Time from start (days)")
+    axt.set_xlim(math.floor(t[0]), math.ceil(t[-1]))
+    axt.set_ylim(numpy.max(ycorr), numpy.min(ycorr))
 
-    plt.subplot(npanel, 1, 2*ilc+2)
-    plt.axis([0.0, 1.0, numpy.max(ycorr), numpy.min(ycorr)])
+    axt.xaxis.tick_top()
+    axt.xaxis.set_label_position("top")
+    
+    axt.set_xlabel("BJD $-$ {0:.1f}".format(bjdbase))
+    axt.set_ylabel("Delta mag")
+
+    axp = fig.add_subplot(gsh[1], sharey=axt)
 
     phase = numpy.fmod(vbest*t, 1.0)
 
-    plt.plot(phase, ycorr, ".", color="black")
+    axp.errorbar(phase, ycorr, yerr, fmt="none", ecolor="#A0A0A0", capsize=2, alpha=0.5)
+
+    bins = numpy.linspace(0.0, 1.0, nbin+1)
+
+    xb = 0.5*(bins[0:nbin] + bins[1:nbin+1])
+    
+    ybn = numpy.histogram(phase, bins=bins, weights=ycorr*wt)[0]
+    ybd = numpy.histogram(phase, bins=bins, weights=wt)[0]
+
+    wb = ybd > 0
+    
+    axp.plot(xb[wb], ybn[wb]/ybd[wb], "o", color="black")
     
     modx = numpy.linspace(0.0, 1.0, 1000)
     modp = 2*math.pi*modx
@@ -208,27 +244,35 @@ for ilc, lc in enumerate(buf):
 
     print("Amplitude", math.sqrt(bsc[0]**2 + bsc[1]**2))
 
-    plt.plot(modx, mody, color="red")
+    axp.plot(modx, mody, color="red")
 
-    plt.ylabel("Delta mag")
-    plt.xlabel("Phase")
+    axp.set_xlim(0.0, 1.0)
+    axp.set_ylim(numpy.max(ycorr), numpy.min(ycorr))
+    
+    axp.set_ylabel("Delta mag")
+    axp.set_xlabel("Phase")
 
-axp = plt.subplot(npanel, 1, npanel-1)
-axp.axis([numpy.min(v), numpy.max(v), numpy.max(ampspec), numpy.min(ampspec)])
-axp.plot(v, ampspec, color="black")
-axp.plot([vbest, vbest], plt.ylim(), color="red", linestyle='--')
-
-plt.ylabel("sqrt($\chi^2$)")
-
-plt.subplot(npanel, 1, npanel, sharex=axp)
-plt.axis([numpy.min(v), numpy.max(v), 0.0, 1.0])
-plt.plot(v, winfunc, color="black")
-plt.plot([vbest, vbest], plt.ylim(), color="red", linestyle='--')
-
-plt.xlabel("Frequency (days$^{-1}$)")
-plt.ylabel("Window function")
-
-plt.tight_layout()
-plt.show()
-
-sys.exit(0)
+    gsl = matplotlib.gridspec.GridSpecFromSubplotSpec(2, 1, hspace=0, subplot_spec=gs[1])
+    
+    axp = fig.add_subplot(gsl[0])
+    axp.plot(pspec, ampspec, color="black")
+    axp.axvline(pbest, color="red", alpha=0.5)
+    axp.set_xlim(numpy.min(pspec), numpy.max(pspec))
+    axp.set_ylim(numpy.max(ampspec), numpy.min(ampspec))
+    axp.semilogx()
+    axp.get_xaxis().set_visible(False)
+    
+    axp.set_ylabel("sqrt($\chi^2$)")
+    
+    axw = fig.add_subplot(gsl[1], sharex=axp)
+    axw.plot(pspec, winfunc, color="black")
+    axw.axvline(pbest, color="red", alpha=0.5)
+    axw.set_xlim(numpy.min(pspec), numpy.max(pspec))
+    axw.set_ylim(0.0, 0.99)
+    axw.get_xaxis().set_visible(True)
+    
+    axw.set_xlabel("Period (days), best P = {0:.3f} days".format(pbest))
+    axw.set_ylabel("Window function")
+    
+    plt.tight_layout()
+    plt.show()
