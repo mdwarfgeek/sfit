@@ -136,8 +136,6 @@ v *= vsamp
 pspec = 1.0 / v
 
 # Plots.
-fig = plt.figure(figsize=figsize)
-
 nbin = 100
 
 for ilc, lc in enumerate(buf):
@@ -185,6 +183,8 @@ for ilc, lc in enumerate(buf):
 
     print("Dataset", ilc+1, "T0 =", t0)
 
+    fig = plt.figure(figsize=figsize)
+    
     gs = matplotlib.gridspec.GridSpec(2, 1)
     
     gsh = matplotlib.gridspec.GridSpecFromSubplotSpec(2, 1, hspace=0, subplot_spec=gs[0])
