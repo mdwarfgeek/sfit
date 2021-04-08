@@ -257,6 +257,9 @@ for ilc, lc in enumerate(buf):
     axp = fig.add_subplot(gsl[0])
     axp.plot(pspec, ampspec, color="black")
     axp.axvline(pbest, color="red", alpha=0.5)
+    if pbest > 2:  # alias periods
+      axp.axvline(1.0/(1.0-vbest), color="green", alpha=0.25)
+      axp.axvline(1.0/(1.0+vbest), color="green", alpha=0.25)
     axp.set_xlim(numpy.min(pspec), numpy.max(pspec))
     axp.set_ylim(numpy.max(ampspec), numpy.min(ampspec))
     axp.semilogx()
@@ -267,6 +270,9 @@ for ilc, lc in enumerate(buf):
     axw = fig.add_subplot(gsl[1], sharex=axp)
     axw.plot(pspec, winfunc, color="black")
     axw.axvline(pbest, color="red", alpha=0.5)
+    if pbest > 2:  # alias periods
+      axw.axvline(1.0/(1.0-vbest), color="green", alpha=0.25)
+      axw.axvline(1.0/(1.0+vbest), color="green", alpha=0.25)
     axw.set_xlim(numpy.min(pspec), numpy.max(pspec))
     axw.set_ylim(0.0, 0.99)
     axw.get_xaxis().set_visible(True)
