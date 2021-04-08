@@ -142,6 +142,7 @@ for ilc, lc in enumerate(buf):
     (t, y, wt, ep, idc, iamp) = lc
 
     b = balt[ilc]
+    bcov = bcovalt[ilc]
 
     if ep is not None:
       nep = ep.shape[0]
@@ -162,7 +163,8 @@ for ilc, lc in enumerate(buf):
     bdc = b[0:ndc]        # DCs
     bep = b[ndc:ndc+nep]  # external parameters
     bsc = b[ndc+nep:]     # sin, cos, sin, cos, ...
-
+    bcovsc = bcov[ndc+nep:,ndc+nep:]
+    
     # "Corrected" y array
     blm = bdc[idc]
     if nep > 0:
@@ -242,8 +244,27 @@ for ilc, lc in enumerate(buf):
 
     mody = bsc[0] * numpy.sin(modp) + bsc[1] * numpy.cos(modp)
 
-    print("Amplitude", math.sqrt(bsc[0]**2 + bsc[1]**2))
+    # Evaluate model for this light curve only, to get error scaling.
+    thischisq = sfit.single([lc], vbest)[0]
+    thisndof = len(y) - len(b) - 1  # 1 extra for period
+    if thisndof > 0:
+      thiserrscl = numpy.sqrt(thischisq / thisndof)
+    else:
+      thiserrscl = 1.0
+      
+    # Error propagation from sin,cos terms to amplitude.
+    aa = bsc[0]*bsc[0]
+    bb = bsc[1]*bsc[1]
+    ab = bsc[0]*bsc[1]
 
+    ampsq = aa + bb
+    vvv = bcovsc[0,0]*aa + bcovsc[1,1]*bb + (bcovsc[1,0] + bcovsc[0,1])*ab
+
+    amp = numpy.sqrt(ampsq)
+    e_amp = numpy.sqrt(vvv / ampsq) * thiserrscl
+    
+    print("Amplitude {0:.6f} +/- {1:.6f}".format(amp, e_amp))
+    
     axp.plot(modx, mody, color="red")
 
     axp.set_xlim(0.0, 1.0)
