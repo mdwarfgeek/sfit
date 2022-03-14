@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
+
 import argparse
 import math
 import re
@@ -87,7 +89,7 @@ for filename in args.filelist:
   # Remap them to decide where we put the new DCs.
   idclist = numpy.array([segs[s] for s in lc["s"]], dtype=numpy.int)
 
-  print "For", filename, "fitting", len(segs), "DC offsets"
+  print("For", filename, "fitting", len(segs), "DC offsets")
 
   for idc in range(len(segs)):
     thislc = numpy.extract(idclist == idc, lc)
@@ -216,7 +218,7 @@ def logpost (trial, x, y, yerr, flag):
   s = ourparm[pes:pes+nlc]
 
   if not vecok(ourparm):
-    print "not vecok for", ourparm
+    print("not vecok for", ourparm)
     return -numpy.inf
 
   # Likelihood.
@@ -285,7 +287,7 @@ for iiter in range(5):
   (medoff, sigoff) = medsig(resid)
   newflag = numpy.absolute(resid-medoff) < 5*sigoff
 
-  print "Iteration", iiter, sigoff, ndof
+  print("Iteration", iiter, sigoff, ndof)
 
   if numpy.sum(newflag) == numpy.sum(flag):
     # DONE
@@ -306,19 +308,19 @@ for ilc in range(nlc):
 
   parm[pes+ilc] = math.sqrt(chisq / endof)
 
-  print "LC", ilc, "chi squared =", chisq, "ndof =", ndof
+  print("LC", ilc, "chi squared =", chisq, "ndof =", ndof)
 
 # Final parameters.
-print "L-M parameters:"
+print("L-M parameters:")
 
 for iparm in range(ndim):
   value = parm[iparm]
 
-  print "{0:<16} {1:14.6f} +/- {2:8.6f} {3}".format(parm_names[iparm],
+  print("{0:<16} {1:14.6f} +/- {2:8.6f} {3}".format(parm_names[iparm],
                                                     value,
                                                     verr[iparm],
-                                                    parm_units[iparm])
-print 'residual scatter =', sigoff
+                                                    parm_units[iparm]))
+print('residual scatter =', sigoff)
 
 if args.m is not None:
   # Init MC
@@ -363,30 +365,30 @@ if args.m is not None:
   if nburn < 1000:
     nburn = 1000
 
-  print "MCMC using", nwalk, "walkers nburn =", nburn, "nsim =", nsim
-  print "Will produce", nburn*nwalk, "burn-in and", nsim*nwalk, "final samples"
+  print("MCMC using", nwalk, "walkers nburn =", nburn, "nsim =", nsim)
+  print("Will produce", nburn*nwalk, "burn-in and", nsim*nwalk, "final samples")
 
-  print "Burn start"
+  print("Burn start")
 
   pos, prob, state = samp.run_mcmc(pos, nburn,
                                    rstate0=numpy.random.get_state())
 
-  print "Burn done"
+  print("Burn done")
 
   plot_chain(samp, args.m + "_burn.png")
 
   samp.reset()
 
-  print "Main start"
+  print("Main start")
 
   pos, prob, state = samp.run_mcmc(pos, nsim)
 
-  print "Main done"
+  print("Main done")
 
   plot_chain(samp, args.m + "_chains.png")
 
-  print "Acceptance fraction:", samp.acceptance_fraction
-  print "Autocorrelation lengths:", samp.acor
+  print("Acceptance fraction:", samp.acceptance_fraction)
+  print("Autocorrelation lengths:", samp.acor)
 
   ch = samp.flatchain
 
@@ -406,12 +408,12 @@ if args.m is not None:
   lfp = open(args.m + "_lcfit.txt", "w")
   tfp = open(args.m + "_lcfit.tex", "w")
 
-  print >>lfp, "MC parameters:"
-  print "MC parameters:"
+  print("MC parameters:", file=lfp)
+  print("MC parameters:")
 
-  print >>tfp, "\\hline"
-  print >>tfp, "MCMC parameters\\\\"
-  print >>tfp, "\\hline"
+  print("\\hline", file=tfp)
+  print("MCMC parameters\\\\", file=tfp)
+  print("\\hline", file=tfp)
 
   vmed = numpy.empty([ndim])
   vad = numpy.empty([ndim])
@@ -436,8 +438,8 @@ if args.m is not None:
                                                        err,
                                                        parm_units[iparm])
 
-    print >>lfp, line
-    print line
+    print(line, file=lfp)
+    print(line)
 
   # TeX output.
   for iparm in range(ndim):
@@ -459,7 +461,7 @@ if args.m is not None:
                                                          fussyastronomer.format(med, ndp),
                                                          fussyastronomer.format(err, ndp))
 
-    print >>tfp, texline   
+    print(texline, file=tfp)   
 
   # Phase needs special treatment to ensure all MCMC samples get wrapped
   # the same way.  To do this, we record a reference phase here derived
@@ -498,12 +500,12 @@ if args.m is not None:
 
     vder[isamp,:] = [period, phi1*period, amp1]
 
-  print >>lfp, "Derived parameters:"
-  print "Derived parameters:"
+  print("Derived parameters:", file=lfp)
+  print("Derived parameters:")
 
-  print >>tfp, "\\hline"
-  print >>tfp, "Derived parameters\\\\"
-  print >>tfp, "\\hline"
+  print("\\hline", file=tfp)
+  print("Derived parameters\\\\", file=tfp)
+  print("\\hline", file=tfp)
 
   for ipar, name in enumerate(dernames):
     unit = derunits[ipar]
@@ -520,8 +522,8 @@ if args.m is not None:
 
     line = "{0:<16} {1:14.6f} +/- {2:8.6f} {3}".format(name, med, err, unit)
 
-    print >>lfp, line
-    print line
+    print(line, file=lfp)
+    print(line)
 
     ndp = fussyastronomer.ndp(err)
 
@@ -538,7 +540,7 @@ if args.m is not None:
                                                          fussyastronomer.format(med, ndp),
                                                          fussyastronomer.format(err, ndp))
 
-    print >>tfp, texline
+    print(texline, file=tfp)
 
   lfp.close()
   tfp.close()
@@ -562,7 +564,7 @@ scl_e_mag = e_mag * errscl
 chisq = numpy.sum((resid[flag] / scl_e_mag[flag])**2)
 ndof = numpy.sum(flag) - ndim
 
-print 'Post-MC chi squared =', chisq, 'ndof =', ndof
+print('Post-MC chi squared =', chisq, 'ndof =', ndof)
 
 # Take off just "observational" baseline for OOE plots.
 ooeplot_dmag = mag - obs_bl(parm)
