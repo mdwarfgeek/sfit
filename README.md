@@ -8,12 +8,7 @@ vintage) C program used for my thesis and some publications prior to
 2014.
 
 The computationally intensive part of the calculation (grid of
-sin/cos) is done in parallel using pthreads and optimized for PCs of
-the 2014 ish era where the fastest method for double precision was to
-use the fsincos instruction on x87.  This is probably still true, SSE
-instructions don't process enough doubles at once to provide a
-performance gain and in my experience AVX is usually slower than SSE,
-despite the wider registers, on computers I have access to.
+sin/cos) is done in parallel using pthreads.
 
 Installation procedure should be standard setup.py as for most Python
 modules.  Mac should be supported as well as Linux but I don't run a
