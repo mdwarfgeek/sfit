@@ -1,5 +1,5 @@
 PYTHON?=python
-LIB?=sfit.so
+LIB?=sfit*.so
 
 SRCS=sfit.c sfit.h sincos.h sysinfo.c wrap.c
 
