@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
+#include <assert.h>
 #include <pthread.h>
 
 #include "sfit.h"
@@ -68,7 +69,7 @@ static inline int sfit_compute (struct sfit_info *inf,
   int pamp;
 
   struct sfit_lc *lc;
-  double phi, wt;
+  double phi, y, wt;
 
   double chisq, a0, a1, a2;
   double a[ncovmax], b[ncoeffmax], c[ncoeffmax];
@@ -97,6 +98,9 @@ static inline int sfit_compute (struct sfit_info *inf,
   for(ilc = 0; ilc < inf->nlc; ilc++) {
     lc = inf->lclist+ilc;
 
+    /* Required by the optimized matrix calculation below. */
+    assert(lc->off_dc == 0);
+
     if(dosc) {
       /* Compute sin, cos */
       for(idp = 0; idp < lc->ndp; idp++) {
@@ -124,15 +128,8 @@ static inline int sfit_compute (struct sfit_info *inf,
 
     /* Accumulate sums for fit */
     for(idp = 0; idp < lc->ndp; idp++) {
+      y = lc->y[idp];
       wt = lc->wt[idp];
-
-      /* Blank vector */
-      for(k = 0; k < ncoeff; k++)
-        c[k] = 0;
-
-      /* DC */
-      if(lc->ndc > 0)
-        c[lc->off_dc + lc->idc[idp]] = 1.0;
 
       /* External parameters */
       for(iep = 0; iep < lc->nep; iep++)
@@ -153,12 +150,39 @@ static inline int sfit_compute (struct sfit_info *inf,
         a2 += cosarg[idp] * wt;
       }
 
-      /* Outer product, interesting parts only */
-      for(k = 0; k < ncoeff; k++) {
-        for(j = 0; j <= k; j++)
+      /* There's only one DC for each light curve point, meaning the
+         upper left square block of the matrix A is diagonal.  Here
+         we take advantage of this by splitting the matrix into four:
+         
+         A = [ D   E^T ]
+             [ E   R   ]
+
+         where D is a diagonal matrix and we need to add 1 * wt to
+         the diagonal for the appropriate DC.  The calculation of E
+         can also be optimized, only one column corresponding to
+         the DC for this point needs to be updated. */
+
+      if(lc->ndc > 0) {
+        /* Column we need to update */
+        j = lc->off_dc + lc->idc[idp];
+
+        /* D */
+        a[j*ncoeff+j] += wt;
+
+        /* and the corresponding element of b */
+        b[j] += y * wt;
+
+        /* E */
+        for(k = lc->off_ep; k < ncoeff; k++)
+          a[k*ncoeff+j] += c[k] * wt;
+      }
+
+      /* R */
+      for(k = lc->off_ep; k < ncoeff; k++) {
+        for(j = lc->off_ep; j <= k; j++)
           a[k*ncoeff+j] += c[k]*c[j] * wt;
 
-        b[k] += lc->y[idp] * c[k] * wt;
+        b[k] += y * c[k] * wt;
       }
     }
 
