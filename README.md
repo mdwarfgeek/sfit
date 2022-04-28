@@ -8,11 +8,18 @@ vintage) C program used for my thesis and some publications prior to
 2014.
 
 The computationally intensive part of the calculation (grid of
-sin/cos) is done in parallel using pthreads.
+sin/cos) is done in parallel using pthreads.  The vectorized sincos
+routines from the SLEEF library can optionally also be used to
+further accelerate the calculation.  This is currently supported on
+x86-64 machines but other architectures might be added if I have
+access to suitable hardware and the vectorization is worthwhile.
 
 Installation procedure should be standard setup.py as for most Python
 modules.  Mac should be supported as well as Linux but I don't run a
-Mac any more so it's not tested regularly.
+Mac any more so it's not tested regularly.  To build with SLEEF this
+needs to be visible to distutils when setup.py is executed; on modern
+Debian or similar systems where there is a package available, this can
+be installed using a command like "apt-get install libsleef-dev".
 
 We use numpy's internal LAPACK and while this usually works I've had
 trouble with some peculiar numpy installs built without LAPACK or on

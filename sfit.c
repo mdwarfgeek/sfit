@@ -7,10 +7,14 @@
 #include <pthread.h>
 
 #include "sfit.h"
-#include "sincos.h"
 
 #ifndef USE_LAPACK
 #include <lfa.h>
+#endif
+
+#if defined(HAVE_SLEEF_SSE) || defined(HAVE_SLEEF_AVX)
+#define HAVE_SLEEF
+#include <cpuid.h>
 #endif
 
 /* Structure to pass between threads */
@@ -34,6 +38,8 @@ struct sfit_info {
   volatile double *chisqper;
   volatile double *winfunc;
   pthread_mutex_t mo;
+
+  void (*vsincos_func) (double, double *, int, double *, double *);
 };
 
 /* Prototypes for external stuff */
@@ -52,6 +58,17 @@ void dgelss_ (int *, int *, int *,
 int svdsolcov (double *a, double *b, double *cov, int m, double scale);
 #endif
 
+#ifdef HAVE_SLEEF_SSE4
+void vsincos_sleef_sse4 (double v, double *t, int ndp,
+                         double *sinarg, double *cosarg);
+#endif
+#ifdef HAVE_SLEEF_AVX
+void vsincos_sleef_avx (double v, double *t, int ndp,
+                        double *sinarg, double *cosarg);
+#endif
+void vsincos_gen (double v, double *t, int ndp,
+                  double *sinarg, double *cosarg);
+
 /* Main calculation */
 
 static inline int sfit_compute (struct sfit_info *inf,
@@ -69,7 +86,7 @@ static inline int sfit_compute (struct sfit_info *inf,
   int pamp;
 
   struct sfit_lc *lc;
-  double phi, y, wt;
+  double y, wt;
 
   double chisq, a0, a1, a2;
   double a[ncovmax], b[ncoeffmax], c[ncoeffmax];
@@ -102,16 +119,7 @@ static inline int sfit_compute (struct sfit_info *inf,
     assert(lc->off_dc == 0);
 
     if(dosc) {
-      /* Compute sin, cos */
-      for(idp = 0; idp < lc->ndp; idp++) {
-        /* Range reduction */
-        phi = v * lc->t[idp];
-        phi -= rint(phi);
-
-        /* Compute sin, cos, preferably simultaneously.
-           Results stored to arrays. */
-        inline_bare_sincos(2*M_PI*phi, sinarg[idp], cosarg[idp]);
-      }
+      inf->vsincos_func(v, lc->t, lc->ndp, sinarg, cosarg);
 
       ncoeff = lc->ncoeff + 2*lc->namp;
     }
@@ -373,6 +381,9 @@ static void *sfit_search_work_thread (void *data) {
 void sfit_info (struct sfit_info *inf,
                 struct sfit_lc *lclist, int nlc) {
   int ilc, ncoeffsc, ncoeffmax, nmeasmax;
+#ifdef HAVE_SLEEF
+  unsigned int ia, ib, ic, id;
+#endif
 
   /* Compute number of coefficients in each LC */
   ncoeffmax = 0;
@@ -401,6 +412,23 @@ void sfit_info (struct sfit_info *inf,
   inf->ncoeffmax = ncoeffmax;
   inf->ncovmax = ncoeffmax*ncoeffmax;
   inf->nmeasmax = nmeasmax;
+
+  inf->vsincos_func = vsincos_gen;
+
+#ifdef HAVE_SLEEF
+  /* Runtime check for CPU features */
+  __cpuid(1, ia, ib, ic, id);
+#ifdef HAVE_SLEEF_SSE4
+  if(ic & bit_SSE4_1) {
+    inf->vsincos_func = vsincos_sleef_sse4;
+  }
+#endif
+#ifdef HAVE_SLEEF_AVX
+  if(ic & bit_AVX) {
+    inf->vsincos_func = vsincos_sleef_avx;
+  }
+#endif
+#endif
 }
 
 int sfit_search (struct sfit_lc *lclist, int nlc,
