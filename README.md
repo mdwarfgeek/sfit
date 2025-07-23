@@ -21,18 +21,6 @@ needs to be visible to distutils when setup.py is executed; on modern
 Debian or similar systems where there is a package available, this can
 be installed using a command like "apt-get install libsleef-dev".
 
-We use numpy's internal LAPACK and while this usually works I've had
-trouble with some peculiar numpy installs built without LAPACK or on
-systems such as Debian-based distributions where numpy was installed
-from a package but LAPACK isn't available.  The latter problem might
-be fixed by installing the appropriate LAPACK packages using a command
-like "apt-get install liblapack-dev libatlas-base-dev".
-
-It's not currently supported by the build system but it is possible to
-use either my QR routines from "lib" also on this github account (by
-removing -DUSE_LAPACK and altering the include and linker paths), or
-another LAPACK if desired by playing with the build flags.
-
 A simple demo script test.py is included for processing MEarth release
 light curves.  Common mode and FWHM are decorrelated by default as
 well as handling meridian flips and multiple light curves.  I usually
