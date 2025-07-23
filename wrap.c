@@ -21,6 +21,15 @@
   Py_XDECREF(o)
 #endif
 
+/* If we're compiling without the pre-1.7 API, restore these macros */
+#ifndef NPY_FORCECAST
+#define NPY_FORCECAST NPY_ARRAY_FORCECAST
+#endif
+
+#ifndef NPY_IN_ARRAY
+#define NPY_IN_ARRAY NPY_ARRAY_IN_ARRAY
+#endif
+
 struct lc_list {
   struct sfit_lc *lclist;
   int nlc;

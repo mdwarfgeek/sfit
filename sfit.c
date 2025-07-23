@@ -9,7 +9,7 @@
 #include "sfit.h"
 
 #ifndef USE_LAPACK
-#include <lfa.h>
+#include "qr.h"
 #endif
 
 #if defined(HAVE_SLEEF_SSE) || defined(HAVE_SLEEF_AVX)
